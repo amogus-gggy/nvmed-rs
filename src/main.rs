@@ -129,17 +129,26 @@ mod driver {
 
     #[no_mangle]
     extern "C" fn nvmed_main() -> ! {
+        nyvela::log(b"NVMED: start\n");
+        // raw syscall test: write(1, msg, len)
+        let msg = b"NVMED RAW WRITE TEST\n";
+        unsafe { core::arch::asm!("int 0x80", inlateout("rax") 1usize => _, in("rdi") 1usize, in("rsi") msg.as_ptr() as usize, in("rdx") msg.len(), in("r10") 0usize); }
         let Some((bdf, bar)) = nvme::discover() else {
             nyvela::log(b"NVMED: no NVMe PCI device with a usable BAR0\n");
             nyvela::exit(1);
         };
+        nyvela::log(b"NVMED: discovered NVMe device\n");
         if !nyvela::claim_nvme(bdf) {
             nyvela::log(b"NVMED: controller busy or kernel NVMe claim unavailable\n");
             nyvela::exit(1);
         }
+        nyvela::log(b"NVMED: claimed controller\n");
         let mut controller = Controller::new();
         let status = match controller.init(bar) {
-            Ok(namespace) => serve(controller, namespace),
+            Ok(namespace) => {
+                nyvela::log(b"NVMED: controller initialized\n");
+                serve(controller, namespace)
+            }
             Err(error) => {
                 nyvela::log(error.message());
                 stop(controller, false);
@@ -154,4 +163,18 @@ mod driver {
         nyvela::log(b"NVMED: panic, controller may require reset\n");
         nyvela::exit(1);
     }
+}
+
+// Custom memcpy to instrument and avoid compiler-rt assumptions.
+#[no_mangle]
+pub unsafe extern "C" fn memcpy(dest: *mut u8, src: *const u8, n: usize) -> *mut u8 {
+    nyvela::log(b"memcpy ");
+    nyvela::log(if dest.is_null() { b"d=null " } else { b"d=set " });
+    nyvela::log(if src.is_null() { b"s=null\n" } else { b"s=set\n" });
+    let mut i = 0usize;
+    while i < n {
+        dest.add(i).write(src.add(i).read());
+        i += 1;
+    }
+    dest
 }

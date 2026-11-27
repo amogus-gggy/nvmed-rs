@@ -22,8 +22,26 @@ mod driver {
         ".global _start",
         "_start:",
         "cld",
+        // The flat loader supplies no ELF relocation support. Apply the static
+        // PIE's R_X86_64_RELATIVE entries before Rust code can use the GOT.
+        "lea rdx, [rip + _start]",
+        "lea rsi, [rip + relocations_start]",
+        "lea rcx, [rip + relocations_end]",
+        "2:",
+        "cmp rsi, rcx",
+        "je 3f",
+        "cmp qword ptr [rsi + 8], 8",
+        "jne 4f",
+        "mov rax, [rsi]",
+        "mov rdi, [rsi + 16]",
+        "add rdi, rdx",
+        "mov [rdx + rax], rdi",
+        "add rsi, 24",
+        "jmp 2b",
+        "3:",
         "and rsp, -16",
         "call nvmed_main",
+        "4:",
         "ud2",
     );
 
@@ -130,9 +148,6 @@ mod driver {
     #[no_mangle]
     extern "C" fn nvmed_main() -> ! {
         nyvela::log(b"NVMED: start\n");
-        // raw syscall test: write(1, msg, len)
-        let msg = b"NVMED RAW WRITE TEST\n";
-        unsafe { core::arch::asm!("int 0x80", inlateout("rax") 1usize => _, in("rdi") 1usize, in("rsi") msg.as_ptr() as usize, in("rdx") msg.len(), in("r10") 0usize); }
         let Some((bdf, bar)) = nvme::discover() else {
             nyvela::log(b"NVMED: no NVMe PCI device with a usable BAR0\n");
             nyvela::exit(1);
@@ -163,18 +178,4 @@ mod driver {
         nyvela::log(b"NVMED: panic, controller may require reset\n");
         nyvela::exit(1);
     }
-}
-
-// Custom memcpy to instrument and avoid compiler-rt assumptions.
-#[no_mangle]
-pub unsafe extern "C" fn memcpy(dest: *mut u8, src: *const u8, n: usize) -> *mut u8 {
-    nyvela::log(b"memcpy ");
-    nyvela::log(if dest.is_null() { b"d=null " } else { b"d=set " });
-    nyvela::log(if src.is_null() { b"s=null\n" } else { b"s=set\n" });
-    let mut i = 0usize;
-    while i < n {
-        dest.add(i).write(src.add(i).read());
-        i += 1;
-    }
-    dest
 }

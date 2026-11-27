@@ -2,7 +2,8 @@ CARGO ?= cargo
 OBJCOPY ?= objcopy
 ARCH := x86_64-unknown-none
 BUILD := build
-RUSTFLAGS := -C relocation-model=static -C link-arg=-Tlinker.ld -C link-arg=--no-pie
+RUSTFLAGS := -C relocation-model=pic -C link-arg=-Tlinker.ld \
+             -C link-arg=-pie -C link-arg=--no-dynamic-linker
 
 .PHONY: all clean test
 all: $(BUILD)/nvmed.elf $(BUILD)/nvmed.bin

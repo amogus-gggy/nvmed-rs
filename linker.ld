@@ -2,7 +2,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-  . = 0x500000;
+  /* Nyvd and SYS_EXEC load this flat image at different addresses. */
+  . = 0;
   .text : {
     KEEP(*(.text._start))
     *(.text .text.*)
@@ -10,10 +11,13 @@ SECTIONS
   .rodata : { *(.rodata .rodata.*) }
   .data : { *(.data .data.*) }
   .got : { *(.got .got.*) }
-  .rela.dyn : { *(.rela.dyn) }
+  .rela.dyn : {
+    relocations_start = .;
+    *(.rela.dyn)
+    relocations_end = .;
+  }
   .bss : { *(.bss .bss.*) *(COMMON) }
   /DISCARD/ : { *(.eh_frame*) *(.comment*) *(.note*) }
 }
 
-ASSERT(_start == 0x500000, "entry must be the first byte of the flat image")
-ASSERT(SIZEOF(.rela.dyn) == 0, "flat image cannot contain runtime relocations")
+ASSERT(_start == 0, "entry must be the first byte of the flat image")

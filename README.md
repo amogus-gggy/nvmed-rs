@@ -14,14 +14,14 @@ make test
 ```
 
 Building requires Rust 1.85 or later and GNU objcopy. The build produces
-`build/nvmed.bin` and `build/nvmed.elf`. The flat image starts at Nyvela's
-program load address, `0x500000`.
+`build/nvmed.bin` and `build/nvmed.elf`. The flat image can run at Nyvd's
+service load address (`0x400000`) or Nyvela's `sys_exec` address (`0x500000`).
 
 Use the Nyvela kernel with the NVMe claim and clock syscalls and the
 4112-byte IPC limit. In `nyvela.conf`, set `NVMED_DIR` to this checkout and
 `NVMED_BIN_NAME` to `nvmed`. Nyvela embeds the build as `/bin/nvmed`.
-Launch it via `sys_exec("/bin/nvmed")` from a launcher thread, leaving another
-thread free to issue requests. `sys_exec` waits for the service to exit.
+Nyvd starts the service during boot. To start it manually from a separate
+launcher thread, use `sys_exec("/bin/nvmed")`, which waits for the service to exit.
 The driver prints its TID once it is ready. With the companion Nyvela changes,
 `make run` provides a writable QEMU test namespace backed by `build/nvme.img`.
 

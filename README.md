@@ -22,8 +22,9 @@ Use the Nyvela kernel with the NVMe claim and clock syscalls and the
 `NVMED_BIN_NAME` to `nvmed`. Nyvela embeds the build as `/bin/nvmed`.
 Nyvd starts the service during boot. To start it manually from a separate
 launcher thread, use `sys_exec("/bin/nvmed")`, which waits for the service to exit.
-The driver prints its TID once it is ready. With the companion Nyvela changes,
-`make run` provides a writable QEMU test namespace backed by `build/nvme.img`.
+The driver prints its TID once it is ready. Nyvela's `make run` attaches a
+writable QEMU namespace. Set `QEMU_NVME_IMAGE` in Nyvela to select its backing
+image.
 
 The service supports one controller and one namespace formatted for 512 to
 4096-byte logical blocks without metadata or protection information. The

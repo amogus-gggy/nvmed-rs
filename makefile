@@ -1,47 +1,22 @@
-include nvmed.conf
-
-ifndef USERLIB_PATH
-$(error USERLIB_PATH is not defined (see nvmed.conf))
-endif
-
-ifndef NPCID_LIB_PATH
-$(error NPCID_LIB_PATH is not defined (see nvmed.conf))
-endif
-
-ifndef NYVD_LIB_PATH
-$(error NYVD_LIB_PATH is not defined (see nvmed.conf))
-endif
-
-CC := gcc
-LD := ld
-OBJCOPY := objcopy
-
+CARGO ?= cargo
+OBJCOPY ?= objcopy
+ARCH := x86_64-unknown-none
 BUILD := build
+RUSTFLAGS := -C relocation-model=static -C link-arg=-Tlinker.ld -C link-arg=--no-pie
 
-TARGET := $(BUILD)/nvmed
-ELF := $(TARGET).elf
-BIN := $(TARGET).bin
+.PHONY: all clean test
+all: $(BUILD)/nvmed.elf $(BUILD)/nvmed.bin
 
-CFLAGS := -ffreestanding -m64 -mno-red-zone \
-          -mgeneral-regs-only -mpreferred-stack-boundary=3 \
-          -fno-stack-protector -fno-pie -fno-pic \
-          -ffunction-sections -fdata-sections \
-          -Wall -Wextra \
-          -Iinclude -I$(USERLIB_PATH) -I$(NPCID_LIB_PATH) -I$(NYVD_LIB_PATH)
+$(BUILD)/nvmed.elf: $(wildcard src/*.rs) Cargo.toml Cargo.lock linker.ld makefile
+	RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) build --locked --release --target $(ARCH) --target-dir $(BUILD)/cargo
+	cp $(BUILD)/cargo/$(ARCH)/release/nvmed $@
 
-LDFLAGS := -nostdlib -static -Wl,--gc-sections -T linker.ld
-SRC := $(shell find src -type f -name '*.c')
-
-.PHONY: all clean
-
-all: $(ELF) $(BIN)
-
-$(ELF): $(SRC) linker.ld
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SRC) -o $@
-
-$(BIN): $(ELF)
+$(BUILD)/nvmed.bin: $(BUILD)/nvmed.elf
 	$(OBJCOPY) -O binary --set-section-flags .bss=alloc,load,contents $< $@
+	test "$$(wc -c < $@)" -le 65536
+
+test:
+	$(CARGO) test --locked --target-dir $(BUILD)/cargo
 
 clean:
 	rm -rf $(BUILD)

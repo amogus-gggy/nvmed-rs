@@ -1,0 +1,157 @@
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_main)]
+
+mod protocol;
+
+#[cfg(not(test))]
+mod nvme;
+#[cfg(not(test))]
+mod nyvela;
+
+#[cfg(not(test))]
+mod driver {
+    use crate::{
+        nvme::{self, Controller, Error, Namespace},
+        nyvela,
+        protocol::*,
+    };
+    use core::{arch::global_asm, panic::PanicInfo, ptr};
+
+    global_asm!(
+        ".section .text._start,\"ax\",@progbits",
+        ".global _start",
+        "_start:",
+        "cld",
+        "and rsp, -16",
+        "call nvmed_main",
+        "ud2",
+    );
+
+    static mut MESSAGE_BUFFER: [u8; MESSAGE] = [0; MESSAGE];
+
+    const INVALID: i32 = -1;
+    const RANGE: i32 = -2;
+    const DEVICE: i32 = -3;
+
+    fn reply(message: &mut [u8], tag: u32, status: i32, detail: u16, length: usize) {
+        message[..HEADER].fill(0);
+        message[..4].copy_from_slice(&status.to_le_bytes());
+        message[4..8].copy_from_slice(&tag.to_le_bytes());
+        message[8..10].copy_from_slice(&detail.to_le_bytes());
+        message[12..16].copy_from_slice(&(length as u32).to_le_bytes());
+    }
+
+    fn stop(controller: Controller, orderly: bool) -> bool {
+        match controller.close(orderly) {
+            Ok(()) => true,
+            Err(error) => {
+                nyvela::log(error.message());
+                false
+            }
+        }
+    }
+
+    fn serve(mut controller: Controller, ns: Namespace) -> usize {
+        // This process has one thread and one request in flight.
+        let message = unsafe { &mut *ptr::addr_of_mut!(MESSAGE_BUFFER) };
+        nyvela::log(b"NVMED: ready, TID ");
+        let mut digits = [0; 3 * core::mem::size_of::<usize>()];
+        let mut tid = nyvela::tid();
+        let mut index = digits.len();
+        loop {
+            index -= 1;
+            digits[index] = b'0' + (tid % 10) as u8;
+            tid /= 10;
+            if tid == 0 {
+                break;
+            }
+        }
+        nyvela::log(&digits[index..]);
+        nyvela::log(b"\n");
+
+        loop {
+            let mut sender = 0;
+            let received = nyvela::poll(message, &mut sender);
+            if received == 0 {
+                nyvela::yield_now();
+                continue;
+            }
+            let Some(request) = Request::decode(&message[..received], ns.block_size) else {
+                let tag = if received >= 8 {
+                    u32::from_le_bytes(message[4..8].try_into().unwrap())
+                } else {
+                    0
+                };
+                reply(message, tag, INVALID, 0, 0);
+                nyvela::send(sender, &message[..HEADER]);
+                continue;
+            };
+
+            let (status, detail, length, fatal) = match request.opcode {
+                INFO => {
+                    message[16..20].copy_from_slice(&ns.id.to_le_bytes());
+                    message[20..24].copy_from_slice(&(ns.block_size as u32).to_le_bytes());
+                    message[24..32].copy_from_slice(&ns.blocks.to_le_bytes());
+                    (0, 0, 16, false)
+                }
+                STOP => {
+                    let code = if stop(controller, true) { 0 } else { DEVICE };
+                    reply(message, request.tag, code, 0, 0);
+                    nyvela::send(sender, &message[..HEADER]);
+                    return usize::from(code != 0);
+                }
+                READ | WRITE if request.lba >= ns.blocks => (RANGE, 0, 0, false),
+                opcode => {
+                    let command = match opcode {
+                        READ => 2,
+                        WRITE => 1,
+                        _ => 0,
+                    };
+                    let data = &mut message[HEADER..HEADER + ns.block_size];
+                    match controller.io(command, &ns, request.lba, data) {
+                        Ok(()) => (0, 0, if opcode == READ { ns.block_size } else { 0 }, false),
+                        Err(Error::Command(status)) => (DEVICE, status, 0, false),
+                        Err(error) => {
+                            nyvela::log(error.message());
+                            (DEVICE, 0, 0, true)
+                        }
+                    }
+                }
+            };
+            reply(message, request.tag, status, detail, length);
+            nyvela::send(sender, &message[..HEADER + length]);
+            if fatal {
+                stop(controller, false);
+                return 1;
+            }
+        }
+    }
+
+    #[no_mangle]
+    extern "C" fn nvmed_main() -> ! {
+        let Some((bdf, bar)) = nvme::discover() else {
+            nyvela::log(b"NVMED: no NVMe PCI device with a usable BAR0\n");
+            nyvela::exit(1);
+        };
+        if !nyvela::claim_nvme(bdf) {
+            nyvela::log(b"NVMED: controller busy or kernel NVMe claim unavailable\n");
+            nyvela::exit(1);
+        }
+        let mut controller = Controller::new();
+        let status = match controller.init(bar) {
+            Ok(namespace) => serve(controller, namespace),
+            Err(error) => {
+                nyvela::log(error.message());
+                stop(controller, false);
+                1
+            }
+        };
+        nyvela::exit(status);
+    }
+
+    #[panic_handler]
+    fn panic(_: &PanicInfo<'_>) -> ! {
+        nyvela::log(b"NVMED: panic, controller may require reset\n");
+        nyvela::exit(1);
+    }
+}

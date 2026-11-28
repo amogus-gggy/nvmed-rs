@@ -1,4 +1,4 @@
-use crate::{nyvela, protocol::PAGE};
+use crate::{lumen, protocol::PAGE};
 use core::{
     ptr::{self, read_volatile, write_volatile},
     sync::atomic::{fence, Ordering},
@@ -43,14 +43,14 @@ impl Error {
 
 pub fn discover() -> Option<(usize, usize)> {
     for bdf in 0..=0xffff {
-        if nyvela::pci_read(bdf, 0) & 0xffff == 0xffff || nyvela::pci_read(bdf, 8) >> 8 != 0x010802
+        if lumen::pci_read(bdf, 0) & 0xffff == 0xffff || lumen::pci_read(bdf, 8) >> 8 != 0x010802
         {
             continue;
         }
-        let low = nyvela::pci_read(bdf, 0x10);
+        let low = lumen::pci_read(bdf, 0x10);
         let high = match low & 7 {
             0 => 0,
-            4 => nyvela::pci_read(bdf, 0x14) as usize,
+            4 => lumen::pci_read(bdf, 0x14) as usize,
             _ => continue,
         };
         let bar = (high << 32) | (low as usize & !0xf);
@@ -82,7 +82,7 @@ struct Dma {
 impl Dma {
     fn new() -> Result<Self, Error> {
         let mut physical = 0;
-        let virtual_address = nyvela::dma_alloc(&mut physical);
+        let virtual_address = lumen::dma_alloc(&mut physical);
         if virtual_address.is_null() {
             return Err(Error::Allocation);
         }
@@ -114,7 +114,7 @@ impl Dma {
 
 impl Drop for Dma {
     fn drop(&mut self) {
-        nyvela::dma_free(self.virtual_address);
+        lumen::dma_free(self.virtual_address);
     }
 }
 
@@ -206,15 +206,15 @@ impl Queue {
 }
 
 fn wait(timeout: usize, mut done: impl FnMut() -> Result<bool, Error>) -> Result<(), Error> {
-    let start = nyvela::clock_ms();
+    let start = lumen::clock_ms();
     loop {
         if done()? {
             return Ok(());
         }
-        if nyvela::clock_ms().wrapping_sub(start) >= timeout {
+        if lumen::clock_ms().wrapping_sub(start) >= timeout {
             return Err(Error::Timeout);
         }
-        nyvela::yield_now();
+        lumen::yield_now();
     }
 }
 
@@ -255,7 +255,7 @@ impl Controller {
     }
 
     pub fn init(&mut self, bar: usize) -> Result<Namespace, Error> {
-        if !nyvela::map_mmio(MMIO, bar) {
+        if !lumen::map_mmio(MMIO, bar) {
             return Err(Error::Mapping);
         }
         let cap_low = reg_read(CAP);
@@ -276,7 +276,7 @@ impl Controller {
             let page = (DOORBELLS + index * stride) & !(PAGE - 1);
             if page != previous_page {
                 let physical = bar.checked_add(page).ok_or(Error::Mapping)?;
-                if !nyvela::map_mmio(MMIO + page, physical) {
+                if !lumen::map_mmio(MMIO + page, physical) {
                     return Err(Error::Mapping);
                 }
                 previous_page = page;
@@ -339,11 +339,11 @@ impl Controller {
             let end = field[..length]
                 .iter()
                 .rposition(|byte| *byte != b' ' && *byte != 0);
-            nyvela::log(label);
+            lumen::log(label);
             if let Some(end) = end {
-                nyvela::log(&field[..=end]);
+                lumen::log(&field[..=end]);
             }
-            nyvela::log(b"\n");
+            lumen::log(b"\n");
         }
     }
 
@@ -419,10 +419,10 @@ impl Controller {
                 core::mem::forget(self);
                 return Err(error);
             }
-            nyvela::release_nvme();
+            lumen::release_nvme();
             return shutdown;
         }
-        nyvela::release_nvme();
+        lumen::release_nvme();
         Ok(())
     }
 }

@@ -2,7 +2,7 @@ use core::{arch::asm, ptr};
 
 fn syscall(number: usize, a: usize, b: usize, c: usize, d: usize) -> usize {
     let result;
-    // Nyvela preserves general-purpose registers other than RAX across int 0x80.
+    // Lumen preserves general-purpose registers other than RAX across int 0x80.
     unsafe {
         asm!("int 0x80", inlateout("rax") number => result,
             in("rdi") a, in("rsi") b, in("rdx") c, in("r10") d);

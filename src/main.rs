@@ -6,13 +6,13 @@ mod protocol;
 #[cfg(not(test))]
 mod nvme;
 #[cfg(not(test))]
-mod nyvela;
+mod lumen;
 
 #[cfg(not(test))]
 mod driver {
     use crate::{
         nvme::{self, Controller, Error, Namespace},
-        nyvela,
+        lumen,
         protocol::*,
     };
     use core::{arch::global_asm, panic::PanicInfo, ptr};
@@ -63,7 +63,7 @@ mod driver {
         match controller.close(orderly) {
             Ok(()) => true,
             Err(error) => {
-                nyvela::log(error.message());
+                lumen::log(error.message());
                 false
             }
         }
@@ -72,9 +72,9 @@ mod driver {
     fn serve(mut controller: Controller, ns: Namespace) -> usize {
         // This process has one thread and one request in flight.
         let message = unsafe { &mut *ptr::addr_of_mut!(MESSAGE_BUFFER) };
-        nyvela::log(b"NVMED: ready, TID ");
+        lumen::log(b"NVMED: ready, TID ");
         let mut digits = [0; 3 * core::mem::size_of::<usize>()];
-        let mut tid = nyvela::tid();
+        let mut tid = lumen::tid();
         let mut index = digits.len();
         loop {
             index -= 1;
@@ -84,14 +84,14 @@ mod driver {
                 break;
             }
         }
-        nyvela::log(&digits[index..]);
-        nyvela::log(b"\n");
+        lumen::log(&digits[index..]);
+        lumen::log(b"\n");
 
         loop {
             let mut sender = 0;
-            let received = nyvela::poll(message, &mut sender);
+            let received = lumen::poll(message, &mut sender);
             if received == 0 {
-                nyvela::yield_now();
+                lumen::yield_now();
                 continue;
             }
             let Some(request) = Request::decode(&message[..received], ns.block_size) else {
@@ -101,7 +101,7 @@ mod driver {
                     0
                 };
                 reply(message, tag, INVALID, 0, 0);
-                nyvela::send(sender, &message[..HEADER]);
+                lumen::send(sender, &message[..HEADER]);
                 continue;
             };
 
@@ -115,7 +115,7 @@ mod driver {
                 STOP => {
                     let code = if stop(controller, true) { 0 } else { DEVICE };
                     reply(message, request.tag, code, 0, 0);
-                    nyvela::send(sender, &message[..HEADER]);
+                    lumen::send(sender, &message[..HEADER]);
                     return usize::from(code != 0);
                 }
                 READ | WRITE if request.lba >= ns.blocks => (RANGE, 0, 0, false),
@@ -130,14 +130,14 @@ mod driver {
                         Ok(()) => (0, 0, if opcode == READ { ns.block_size } else { 0 }, false),
                         Err(Error::Command(status)) => (DEVICE, status, 0, false),
                         Err(error) => {
-                            nyvela::log(error.message());
+                            lumen::log(error.message());
                             (DEVICE, 0, 0, true)
                         }
                     }
                 }
             };
             reply(message, request.tag, status, detail, length);
-            nyvela::send(sender, &message[..HEADER + length]);
+            lumen::send(sender, &message[..HEADER + length]);
             if fatal {
                 stop(controller, false);
                 return 1;
@@ -147,35 +147,35 @@ mod driver {
 
     #[no_mangle]
     extern "C" fn nvmed_main() -> ! {
-        nyvela::log(b"NVMED: start\n");
+        lumen::log(b"NVMED: start\n");
         let Some((bdf, bar)) = nvme::discover() else {
-            nyvela::log(b"NVMED: no NVMe PCI device with a usable BAR0\n");
-            nyvela::exit(1);
+            lumen::log(b"NVMED: no NVMe PCI device with a usable BAR0\n");
+            lumen::exit(1);
         };
-        nyvela::log(b"NVMED: discovered NVMe device\n");
-        if !nyvela::claim_nvme(bdf) {
-            nyvela::log(b"NVMED: controller busy or kernel NVMe claim unavailable\n");
-            nyvela::exit(1);
+        lumen::log(b"NVMED: discovered NVMe device\n");
+        if !lumen::claim_nvme(bdf) {
+            lumen::log(b"NVMED: controller busy or kernel NVMe claim unavailable\n");
+            lumen::exit(1);
         }
-        nyvela::log(b"NVMED: claimed controller\n");
+        lumen::log(b"NVMED: claimed controller\n");
         let mut controller = Controller::new();
         let status = match controller.init(bar) {
             Ok(namespace) => {
-                nyvela::log(b"NVMED: controller initialized\n");
+                lumen::log(b"NVMED: controller initialized\n");
                 serve(controller, namespace)
             }
             Err(error) => {
-                nyvela::log(error.message());
+                lumen::log(error.message());
                 stop(controller, false);
                 1
             }
         };
-        nyvela::exit(status);
+        lumen::exit(status);
     }
 
     #[panic_handler]
     fn panic(_: &PanicInfo<'_>) -> ! {
-        nyvela::log(b"NVMED: panic, controller may require reset\n");
-        nyvela::exit(1);
+        lumen::log(b"NVMED: panic, controller may require reset\n");
+        lumen::exit(1);
     }
 }

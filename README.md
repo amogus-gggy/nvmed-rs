@@ -1,8 +1,8 @@
 # nvmed
 
-A freestanding Rust NVMe block service for Nyvela. It discovers a PCI NVMe
+A freestanding Rust NVMe block service for Lumen. It discovers a PCI NVMe
 controller, prints its identity, and serves the first active namespace over
-Nyvela IPC. The driver uses polled admin and I/O queues, 4 KiB DMA pages, and
+Lumen IPC. The driver uses polled admin and I/O queues, 4 KiB DMA pages, and
 one outstanding command at a time.
 
 ## Build and run
@@ -15,21 +15,21 @@ make test
 
 Building requires Rust 1.85 or later and GNU objcopy. The build produces
 `build/nvmed.bin` and `build/nvmed.elf`. The flat image can run at Nyvd's
-service load address (`0x400000`) or Nyvela's `sys_exec` address (`0x500000`).
+service load address (`0x400000`) or Lumen's `sys_exec` address (`0x500000`).
 
-Use the Nyvela kernel with the NVMe claim and clock syscalls and the
-4112-byte IPC limit. In `nyvela.conf`, set `NVMED_DIR` to this checkout and
-`NVMED_BIN_NAME` to `nvmed`. Nyvela embeds the build as `/bin/nvmed`.
+Use the Lumen kernel with the NVMe claim and clock syscalls and the
+4112-byte IPC limit. In `lumen.conf`, set `NVMED_DIR` to this checkout and
+`NVMED_BIN_NAME` to `nvmed`. Lumen embeds the build as `/bin/nvmed`.
 Nyvd starts the service during boot. To start it manually from a separate
 launcher thread, use `sys_exec("/bin/nvmed")`, which waits for the service to exit.
-The driver prints its TID once it is ready. Nyvela's `make run` attaches a
-writable QEMU namespace. Set `QEMU_NVME_IMAGE` in Nyvela to select its backing
+The driver prints its TID once it is ready. Lumen's `make run` attaches a
+writable QEMU namespace. Set `QEMU_NVME_IMAGE` in Lumen to select its backing
 image.
 
 The service supports one controller and one namespace formatted for 512 to
 4096-byte logical blocks without metadata or protection information. The
 controller needs a firmware-assigned BAR0, 4 KiB page support, and the NVM
-command set. Callers in Nyvela's trusted userspace can issue raw writes and
+command set. Callers in Lumen's trusted userspace can issue raw writes and
 stop the service. A successful flush completes persistence of preceding
 writes. A stop requests normal controller shutdown and returns the DMA pages
 once the controller is disabled.

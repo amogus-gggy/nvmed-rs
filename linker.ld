@@ -2,7 +2,7 @@ ENTRY(_start)
 
 SECTIONS
 {
-  /* Nyvd and SYS_EXEC load this flat image at different addresses. */
+  /* Lumd and SYS_EXEC load this flat image at different addresses. */
   . = 0;
   .text : {
     KEEP(*(.text._start))

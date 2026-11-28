@@ -14,13 +14,13 @@ make test
 ```
 
 Building requires Rust 1.85 or later and GNU objcopy. The build produces
-`build/nvmed.bin` and `build/nvmed.elf`. The flat image can run at Nyvd's
+`build/nvmed.bin` and `build/nvmed.elf`. The flat image can run at Lumd's
 service load address (`0x400000`) or Lumen's `sys_exec` address (`0x500000`).
 
 Use the Lumen kernel with the NVMe claim and clock syscalls and the
 4112-byte IPC limit. In `lumen.conf`, set `NVMED_DIR` to this checkout and
 `NVMED_BIN_NAME` to `nvmed`. Lumen embeds the build as `/bin/nvmed`.
-Nyvd starts the service during boot. To start it manually from a separate
+Lumd starts the service during boot. To start it manually from a separate
 launcher thread, use `sys_exec("/bin/nvmed")`, which waits for the service to exit.
 The driver prints its TID once it is ready. Lumen's `make run` attaches a
 writable QEMU namespace. Set `QEMU_NVME_IMAGE` in Lumen to select its backing
